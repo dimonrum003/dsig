@@ -15,7 +15,7 @@ def md5sum(data):
 
 
 def gost34112012256(data):
-    from gost.gost341112 import GOST341112
+    from .gost.gost341112 import GOST341112
     dgst = GOST341112(digest_size=256)
     dgst.update(data)
     return dgst.digest()
@@ -120,7 +120,7 @@ def sign_file(path, curve, prv, dgst_f=default_dgstr):
     with open(path, 'rb') as file:
         data = file.read()
         dgst = dgst_f(data)
-        return create_signature(curve, prv, dgst, filename=basename(path), filesize=len(data))
+        return create_signature(curve, prv, dgst)
     return None
 
     # try:

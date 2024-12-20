@@ -6,24 +6,7 @@ from PyQt5.QtCore import QTimer
 import serial
 import serial.tools.list_ports
 
-########## HIDE ME ############
-import uart.shell
-shell = uart.shell.Shell()
-
-def generate_keypair():
-    keys = shell.do_genkeys()
-    return keys
-
-# message = path_to_file
-def sign(private_key, message):
-    r, s = shell.do_sign(message, private_key)
-    signature = int(r), int(s)
-    return signature
-
-# message = path_to_file
-def verify(public_key, message, signature):
-    is_valid = shell.do_verify(message, signature, public_key)
-    return is_valid
+from gost3410_util import generate_keypair, sign, verify
 
 class UARTApp(QMainWindow):
     def __init__(self):
@@ -48,8 +31,11 @@ class UARTApp(QMainWindow):
         self.MESSAGE_MAX_LENGTH = 64
         self.message_input.setMaxLength(self.MESSAGE_MAX_LENGTH)
 
-        # Список для отложенных логов
-        self.delayed_logs = []
+        # Переменные для отложенной обработки
+        self.delayed_mode = None
+        self.delayed_message = None
+        self.delayed_pub_key_hex = None
+        self.delayed_user_signature_hex = None
 
         self.update_mode_ui()
 
@@ -96,7 +82,7 @@ class UARTApp(QMainWindow):
         self.signature_label = QLabel("Подпись (hex):")
         sig_layout.addWidget(self.signature_label)
         self.signature_input = QLineEdit()
-        self.signature_input.setReadOnly(False)  # Даем возможность вручную вводить подпись
+        self.signature_input.setReadOnly(False)
         sig_layout.addWidget(self.signature_input)
         main_layout.addLayout(sig_layout)
 
@@ -137,7 +123,7 @@ class UARTApp(QMainWindow):
         # Кнопка отправки
         self.send_button = QPushButton("Отправить")
         self.send_button.clicked.connect(self.handle_send)
-        self.send_button.setEnabled(True)
+        self.send_button.setEnabled(False)
         main_layout.addWidget(self.send_button)
 
         # Формат отображения
@@ -166,7 +152,6 @@ class UARTApp(QMainWindow):
 
     def update_mode_ui(self):
         mode = self.mode_selector.currentText()
-
         # В режиме "Генерация ключа" кнопка "Сгенерировать ключ" неактивна
         if mode == "Генерация ключа":
             self.generate_key_button.setEnabled(False)
@@ -188,11 +173,8 @@ class UARTApp(QMainWindow):
         port = self.port_selector.currentText()
         baud_rate = self.baud_rate_input.text()
 
-        self.delayed_logs.clear()
-
         if not port or not baud_rate.isdigit():
-            self.delayed_logs.append("Ошибка: неверный порт или скорость.")
-            QTimer.singleShot(2000, self.show_delayed_logs)
+            self.output_text.append("Ошибка: неверный порт или скорость.")
             return
 
         try:
@@ -201,15 +183,11 @@ class UARTApp(QMainWindow):
             self.connect_button.setEnabled(False)
             self.disconnect_button.setEnabled(True)
             self.send_button.setEnabled(True)
-            self.delayed_logs.append(f"Подключено к {port} со скоростью {baud_rate}.")
+            self.output_text.append(f"Подключено к {port} со скоростью {baud_rate}.")
         except Exception as e:
-            self.delayed_logs.append(f"Ошибка подключения: {str(e)}")
-
-        QTimer.singleShot(2000, self.show_delayed_logs)
+            self.output_text.append(f"Ошибка подключения: {str(e)}")
 
     def disconnect_uart(self):
-        self.delayed_logs.clear()
-
         if self.serial_port:
             self.timer.stop()
             self.serial_port.close()
@@ -219,128 +197,105 @@ class UARTApp(QMainWindow):
         self.disconnect_button.setEnabled(False)
         self.send_button.setEnabled(False)
 
-        self.delayed_logs.append("Отключено.")
-        QTimer.singleShot(2000, self.show_delayed_logs)
+        self.output_text.append("Отключено.")
 
     def generate_key_action(self):
-        self.delayed_logs.clear()
-
         self.private_key, self.public_key = generate_keypair()
         self.public_key_input.setText(self.public_key.hex())
-
-        self.delayed_logs.append("Сгенерированы новые ключи:")
-        self.delayed_logs.append("Открытый ключ: " + self.public_key.hex())
-        self.delayed_logs.append("Закрытый ключ: " + self.private_key.hex())
-
-        QTimer.singleShot(2000, self.show_delayed_logs)
+        self.output_text.append("Сгенерированы новые ключи:")
+        self.output_text.append("Открытый ключ: " + self.public_key.hex())
+        self.output_text.append("Закрытый ключ: " + self.private_key.hex())
 
     def sign_message_action(self):
-        # Подписать сообщение вручную
-        self.delayed_logs.clear()
-
         if self.private_key is None:
-            self.delayed_logs.append("Ошибка: нет приватного ключа для подписи.")
-            QTimer.singleShot(2000, self.show_delayed_logs)
+            self.output_text.append("Ошибка: нет приватного ключа для подписи.")
             return
-
         message = self.message_input.text().encode('utf-8')
         signature = sign(self.private_key, message)
         self.signature_input.setText(signature.hex())
-        self.delayed_logs.append("Сообщение подписано (кнопка 'Подписать'): " + signature.hex())
-
-        QTimer.singleShot(2000, self.show_delayed_logs)
+        self.output_text.append("Сообщение подписано (кнопка 'Подписать'): " + signature.hex())
 
     def handle_send(self):
-        # Основная логика отправки и проверки
-        # Все логи задержим на 2 секунды
-        self.delayed_logs.clear()
+        # При нажатии "Отправить" мы не делаем ничего сразу, а запускаем таймер на 2 секунды
+        # После 2 секунд вызываем do_actual_send
+        self.delayed_mode = self.mode_selector.currentText()
+        self.delayed_message = self.message_input.text()
+        self.delayed_pub_key_hex = self.public_key_input.text()
+        self.delayed_user_signature_hex = self.signature_input.text().strip()
 
-        mode = self.mode_selector.currentText()
+        QTimer.singleShot(2000, self.do_actual_send)
 
-        message = self.message_input.text()
-        pub_key_hex = self.public_key_input.text()
-        user_signature_hex = self.signature_input.text().strip()
+    def do_actual_send(self):
+        mode = self.delayed_mode
+        message = self.delayed_message
+        pub_key_hex = self.delayed_pub_key_hex
+        user_signature_hex = self.delayed_user_signature_hex
 
         # Проверка длины сообщения
         if len(message) > self.MESSAGE_MAX_LENGTH:
-            self.delayed_logs.append("Ошибка: сообщение слишком длинное.")
-            QTimer.singleShot(2000, self.show_delayed_logs)
+            self.output_text.append("Ошибка: сообщение слишком длинное.")
             return
 
-        # Получаем публичный ключ (если есть)
+        # Получаем публичный ключ
         if pub_key_hex:
             try:
                 pub_key = bytes.fromhex(pub_key_hex)
             except:
-                self.delayed_logs.append("Ошибка: некорректный формат открытого ключа (hex).")
-                QTimer.singleShot(2000, self.show_delayed_logs)
+                self.output_text.append("Ошибка: некорректный формат открытого ключа (hex).")
                 return
         else:
             pub_key = self.public_key
 
-        # Проверка наличия ключей в режимах подписи и проверки
+        # Проверка ключей в режимах подписи и проверки
         if mode in ["Подпись", "Проверка подписи"]:
             if self.private_key is None or pub_key is None:
-                self.delayed_logs.append("Ошибка: нет ключей для выполнения операции.")
-                QTimer.singleShot(2000, self.show_delayed_logs)
+                self.output_text.append("Ошибка: нет ключей для выполнения операции.")
                 return
 
-        # Действия по режимам
         if mode == "Генерация ключа":
-            # Генерация ключей при нажатии "Отправить"
+            # Генерация ключей
             self.private_key, self.public_key = generate_keypair()
-            self.delayed_logs.append("Сгенерирован новый ключ (режим генерации):")
-            self.delayed_logs.append("Открытый ключ: " + self.public_key.hex())
-            self.delayed_logs.append("Закрытый ключ: " + self.private_key.hex())
             self.public_key_input.setText(self.public_key.hex())
+            self.output_text.append("Сгенерирован новый ключ (режим генерации):")
+            self.output_text.append("Открытый ключ: " + self.public_key.hex())
+            self.output_text.append("Закрытый ключ: " + self.private_key.hex())
 
         elif mode == "Подпись":
-            # Подписание сообщения при нажатии "Отправить"
+            # Подписание сообщения
             if self.private_key is None:
-                self.delayed_logs.append("Ошибка: нет закрытого ключа для подписи.")
-                QTimer.singleShot(2000, self.show_delayed_logs)
+                self.output_text.append("Ошибка: нет закрытого ключа для подписи.")
                 return
             signature = sign(self.private_key, message.encode('utf-8'))
             self.signature_input.setText(signature.hex())
-            self.delayed_logs.append("Подпись сгенерирована (режим 'Подпись'): " + signature.hex())
+            self.output_text.append("Подпись сгенерирована (режим 'Подпись'): " + signature.hex())
 
         elif mode == "Проверка подписи":
-            # Проверяем подпись
-            # Если пользователь ввёл подпись, проверим её
-            # Сравним с корректной подписью, вычисленной нами
+            # Проверка подписи
             if self.private_key is None:
-                self.delayed_logs.append("Ошибка: нет закрытого ключа для проверки.")
-                QTimer.singleShot(2000, self.show_delayed_logs)
+                self.output_text.append("Ошибка: нет закрытого ключа для проверки.")
                 return
             correct_signature = sign(self.private_key, message.encode('utf-8'))
 
-            # Если пользователь не ввел подпись
             if not user_signature_hex:
-                self.delayed_logs.append("Ошибка: нет подписи для проверки.")
-                QTimer.singleShot(2000, self.show_delayed_logs)
+                self.output_text.append("Ошибка: нет подписи для проверки.")
                 return
 
             try:
                 user_signature = bytes.fromhex(user_signature_hex)
             except:
-                self.delayed_logs.append("Ошибка: некорректный формат подписи (hex).")
-                QTimer.singleShot(2000, self.show_delayed_logs)
+                self.output_text.append("Ошибка: некорректный формат подписи (hex).")
                 return
 
-            # Проверяем совпадают ли подписи
             if user_signature == correct_signature:
-                # Проверяем криптографически
                 valid = verify(pub_key, message.encode('utf-8'), user_signature)
                 if valid:
-                    self.delayed_logs.append("Сообщение подписано верно.")
+                    self.output_text.append("Сообщение подписано верно.")
                 else:
-                    self.delayed_logs.append("Ошибка: подпись неверна.")
+                    self.output_text.append("Ошибка: подпись неверна.")
             else:
-                # Если пользовательская подпись не совпадает с корректной,
-                # выводим информацию о некорректной подписи
-                self.delayed_logs.append("Подпись некорректна.")
-                self.delayed_logs.append("Корректная подпись: " + correct_signature.hex())
-                self.delayed_logs.append("Подпись от пользователя: " + user_signature_hex)
+                self.output_text.append("Подпись некорректна.")
+                self.output_text.append("Корректная подпись: " + correct_signature.hex())
+                self.output_text.append("Подпись от пользователя: " + user_signature_hex)
 
         # Отправка по UART
         control_byte = b'\x01'
@@ -370,14 +325,12 @@ class UARTApp(QMainWindow):
         if self.serial_port and self.serial_port.is_open:
             try:
                 self.serial_port.write(packet)
-                self.delayed_logs.append("Отправлено в UART: " + packet.hex())
+                self.output_text.append("Отправлено в UART: " + packet.hex())
             except Exception as e:
-                self.delayed_logs.append("Ошибка отправки в UART: " + str(e))
+                self.output_text.append("Ошибка отправки в UART: " + str(e))
         else:
-            self.delayed_logs.append("Предупреждение: UART не подключен, данные не отправлены.")
+            self.output_text.append("Предупреждение: UART не подключен, данные не отправлены.")
 
-        # Отложенный вывод результатов (2 секунды)
-        QTimer.singleShot(2000, self.show_delayed_logs)
 
     def read_from_uart(self):
         if not self.serial_port:
@@ -390,16 +343,9 @@ class UARTApp(QMainWindow):
                     formatted_data = data.decode('utf-8', errors='replace')
                 else:
                     formatted_data = ' '.join(f"{byte:02X}" for byte in data)
-                # Для входящих данных немедленный вывод
                 self.output_text.append(f"Принято из UART: {formatted_data}")
         except Exception as e:
             self.output_text.append(f"Ошибка чтения из UART: {str(e)}")
-
-    def show_delayed_logs(self):
-        # Вывести накопленные логи
-        for line in self.delayed_logs:
-            self.output_text.append(line)
-        self.delayed_logs.clear()
 
     def save_data(self):
         options = QFileDialog.Options()

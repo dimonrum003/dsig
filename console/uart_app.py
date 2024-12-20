@@ -6,19 +6,23 @@ from PyQt5.QtCore import QTimer
 import serial
 import serial.tools.list_ports
 
-try:
-    from gost3410_util import generate_keypair, sign, verify
-except ImportError:
-    # Заглушка, если библиотека недоступна
-    def generate_keypair():
-        # Возвращает фиктивные ключи из 32 байт
-        return b'\x11'*32, b'\x22'*32
-    def sign(private_key, message):
-        # Возвращает фиктивную подпись
-        return b'\x33'*64
-    def verify(public_key, message, signature):
-        # Проверка всегда верна
-        return True
+########## HIDE ME ############
+from uart.uart import shell
+
+def generate_keypair():
+    keys = shell.do_genkeys()
+    return keys
+
+# message = path_to_file
+def sign(private_key, message):
+    r, s = shell.do_sign(message, private_key)
+    signature = int(r), int(s)
+    return signature
+
+# message = path_to_file
+def verify(public_key, message, signature):
+    is_valid = shell.do_verify(message, signature, public_key)
+    return is_valid
 
 class UARTApp(QMainWindow):
     def __init__(self):

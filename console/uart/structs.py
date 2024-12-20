@@ -1,7 +1,7 @@
 from pyasn1.type import univ, namedtype, tag
 from pyasn1.type.char import UTF8String
 
-from strutils import truncate
+from .strutils import truncate
 
 PRETTY_STRING_LENGTH = 100
 

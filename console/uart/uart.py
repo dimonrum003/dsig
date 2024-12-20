@@ -2,7 +2,6 @@ import shell
 from shell import original_stdout
 import sys
 
-shell = shell.Shell()
 
 # message = "/home/denis/study/gost3410-util/testdata/1.txt"
 

@@ -7,7 +7,8 @@ import serial
 import serial.tools.list_ports
 
 ########## HIDE ME ############
-from uart.uart import shell
+import uart.shell
+shell = uart.shell.Shell()
 
 def generate_keypair():
     keys = shell.do_genkeys()

@@ -3,8 +3,8 @@ from os.path import exists, basename
 
 from pyasn1.codec.der import encoder, decoder
 
-from structs import SignatureSequence
-from gost import gost341012
+from .structs import SignatureSequence
+from .gost import gost341012
 
 
 def md5sum(data):

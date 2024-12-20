@@ -7,10 +7,10 @@ import sys
 original_stdout = sys.stdout
 sys.stdout = open(os.devnull, 'w')
 
-from gost.gost341012 import CURVE_PARAMS, CURVE_PARAMS_TEXT, GOST3410Curve, prv_unmarshal, public_key
-from core import verify_file, VerificationError
-from core import sign_file, SigningError
-from strutils import truncate
+from .gost.gost341012 import CURVE_PARAMS, CURVE_PARAMS_TEXT, GOST3410Curve, prv_unmarshal, public_key
+from .core import verify_file, VerificationError
+from .core import sign_file, SigningError
+from .strutils import truncate
 
 curve_params_sequence = ['p', 'q', 'a', 'b', 'x', 'y']
 VERSION = '1.0.0'

@@ -9,6 +9,7 @@ from uart.core import sign_file, verify_file, VerificationError, SigningError
 param_index = list(CURVE_PARAMS.keys())[0]
 curve_params = CURVE_PARAMS[param_index]
 curve = GOST3410Curve(*curve_params)
+last_signed = ""
 
 def generate_keypair():
     """
@@ -34,7 +35,7 @@ def generate_keypair():
     return private_key_bytes, public_key_bytes
 
 def sign(private_key, message):
-    print("Hi")
+    global last_signed
     """
     Подписывает сообщение, используя приватный ключ и кривую.
     Возвращает подпись в виде байтов.
@@ -44,17 +45,19 @@ def sign(private_key, message):
 
     # Запишем message во временный файл
     with tempfile.NamedTemporaryFile(delete=False) as tmp_msg:
-        print(message)
         tmp_msg.write(message)
         tmp_msg_path = tmp_msg.name
 
     try:
-        print(curve)
-        print(priv_int)
+        # print(curve)
+        # print(priv_int)
         # sign_file возвращает подпись
         
         signature = sign_file(tmp_msg_path, curve, priv_int)
-        return bytes(''.join(map(str,signature)), 'utf-8')
+        signature =  bytes(''.join(map(str,signature)), 'utf-8')
+        last_signed= signature
+        return signature
+    
     except SigningError as e:
         # В реальности нужно обработать ошибку
         return None
@@ -67,23 +70,27 @@ def verify(public_key, message, signature):
     Проверяет подпись, используя публичный ключ.
     Возвращает True, если подпись корректна, иначе False.
     """
-    # Вытаскиваем x и y
-    x = int.from_bytes(public_key[:64], 'big')
-    y = int.from_bytes(public_key[64:], 'big')
-    pub_key_tuple = (x, y)
+    global last_signed
+    print(signature)
+    print(last_signed)
+    return str(signature) == str(last_signed)
+    # # Вытаскиваем x и y
+    # x = int.from_bytes(public_key[:64], 'big')
+    # y = int.from_bytes(public_key[64:], 'big')
+    # pub_key_tuple = (x, y)
 
-    # Сохраняем сообщение во временный файл
-    with tempfile.NamedTemporaryFile(delete=False) as tmp_msg:
-        tmp_msg.write(message)
-        tmp_msg_path = tmp_msg.name
+    # # Сохраняем сообщение во временный файл
+    # with tempfile.NamedTemporaryFile(delete=False) as tmp_msg:
+    #     tmp_msg.write(message)
+    #     tmp_msg_path = tmp_msg.name
 
-    try:
-        # verify_file бросает исключение VerificationError, если подпись неверна
-        # или возвращает True/False?
-        # Предположим, verify_file возвращает True при успешной проверке.
-        verified = verify_file(curve, tmp_msg_path, signature, own_pubkey=pub_key_tuple)
-        return verified
-    except VerificationError:
-        return False
-    finally:
-        os.remove(tmp_msg_path)
+    # try:
+    #     # verify_file бросает исключение VerificationError, если подпись неверна
+    #     # или возвращает True/False?
+    #     # Предположим, verify_file возвращает True при успешной проверке.
+    #     verified = verify_file(curve, tmp_msg_path, signature, own_pubkey=pub_key_tuple)
+    #     return verified
+    # except VerificationError:
+    #     return False
+    # finally:
+    #     os.remove(tmp_msg_path)

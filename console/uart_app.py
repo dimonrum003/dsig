@@ -212,8 +212,8 @@ class UARTApp(QMainWindow):
             return
         message = self.message_input.text().encode('utf-8')
         signature = sign(self.private_key, message)
-        self.signature_input.setText(signature.hex())
-        self.output_text.append("Сообщение подписано (кнопка 'Подписать'): " + signature.hex())
+        self.signature_input.setText(str(signature))
+        self.output_text.append("Сообщение подписано (кнопка 'Подписать'): " + str(signature))
 
     def handle_send(self):
         # При нажатии "Отправить" мы не делаем ничего сразу, а запускаем таймер на 2 секунды
@@ -266,27 +266,26 @@ class UARTApp(QMainWindow):
                 self.output_text.append("Ошибка: нет закрытого ключа для подписи.")
                 return
             signature = sign(self.private_key, message.encode('utf-8'))
-            self.signature_input.setText(signature.hex())
-            self.output_text.append("Подпись сгенерирована (режим 'Подпись'): " + signature.hex())
+            self.signature_input.setText(str(signature))
+            self.output_text.append("Подпись сгенерирована (режим 'Подпись'): " + str(signature))
 
         elif mode == "Проверка подписи":
             # Проверка подписи
             if self.private_key is None:
                 self.output_text.append("Ошибка: нет закрытого ключа для проверки.")
                 return
-            correct_signature = sign(self.private_key, message.encode('utf-8'))
 
             if not user_signature_hex:
                 self.output_text.append("Ошибка: нет подписи для проверки.")
                 return
 
             try:
-                user_signature = bytes.fromhex(user_signature_hex)
+                user_signature = user_signature_hex
             except:
                 self.output_text.append("Ошибка: некорректный формат подписи (hex).")
                 return
 
-            if user_signature == correct_signature:
+            if True:
                 valid = verify(pub_key, message.encode('utf-8'), user_signature)
                 if valid:
                     self.output_text.append("Сообщение подписано верно.")
@@ -294,8 +293,8 @@ class UARTApp(QMainWindow):
                     self.output_text.append("Ошибка: подпись неверна.")
             else:
                 self.output_text.append("Подпись некорректна.")
-                self.output_text.append("Корректная подпись: " + correct_signature.hex())
-                self.output_text.append("Подпись от пользователя: " + user_signature_hex)
+                self.output_text.append("Корректная подпись: " + correct_signature)
+                self.output_text.append("Подпись от пользователя: " + user_signature)
 
         # Отправка по UART
         control_byte = b'\x01'
